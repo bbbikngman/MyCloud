@@ -1,0 +1,39 @@
+pipeline {
+    agent any
+
+    tools {
+        // ここのツール名は、Jenkins管理画面の「グローバルツール設定」で設定した名前と一致させる必要があります
+        maven 'Maven'  // Jenkinsで設定したMavenの名前
+        jdk 'JDK'     // Jenkinsで設定したJDKの名前
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                // コードのチェックアウト
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                // Mavenビルド
+                sh 'mvn clean package -DskipTests'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                // テスト実行
+                sh 'mvn test'
+            }
+        }
+    }
+
+    post {
+        always {
+            // ワークスペースのクリーンアップ
+            cleanWs()
+        }
+    }
+}
