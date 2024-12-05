@@ -1,0 +1,13 @@
+com\sinuohao\model\FileInfo.class
+com\sinuohao\controller\MessageController.class
+com\sinuohao\model\User.class
+com\sinuohao\service\MessageService.class
+com\sinuohao\service\impl\MessageServiceImpl.class
+com\sinuohao\service\FileService.class
+com\sinuohao\controller\FileController.class
+com\sinuohao\service\impl\FileServiceImpl.class
+com\sinuohao\model\FileInfo$FileInfoBuilder.class
+com\sinuohao\model\Message.class
+com\sinuohao\repository\MessageRepository.class
+com\sinuohao\CloudServerApplication.class
+com\sinuohao\config\FileStorageProperties.class
