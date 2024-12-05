@@ -2,29 +2,28 @@ pipeline {
     agent any
 
     tools {
-        // ここのツール名は、Jenkins管理画面の「グローバルツール設定」で設定した名前と一致させる必要があります
-        maven 'Maven'  // Jenkinsで設定したMavenの名前
-        jdk 'JDK'     // Jenkinsで設定したJDKの名前
+        maven 'Maven3'
+        jdk 'JDK11'    // Java 11を使用するように変更
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // コードのチェックアウト
                 checkout scm
             }
         }
 
         stage('Build') {
             steps {
-                // Mavenビルド
+                // Javaバージョンの確認を追加
+                sh 'java -version'
+                sh 'mvn -version'
                 sh 'mvn clean package -DskipTests'
             }
         }
 
         stage('Test') {
             steps {
-                // テスト実行
                 sh 'mvn test'
             }
         }
@@ -32,8 +31,13 @@ pipeline {
 
     post {
         always {
-            // ワークスペースのクリーンアップ
             cleanWs()
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+        success {
+            echo 'Pipeline succeeded!'
         }
     }
 }
