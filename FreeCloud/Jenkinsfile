@@ -57,7 +57,7 @@ pipeline {
              steps {
                 dir('FreeCloud/cloudServer') {
                     sh '''
-                        # Copy the JAR
+                         # Copy the JAR
                         cp target/*.jar /opt/myapp/cloudServer.jar
                         
                         # Reload systemd
@@ -68,6 +68,10 @@ pipeline {
                         
                         # Check status
                         sudo systemctl status myapp
+                        
+                        # Verify application is running
+                        sleep 10
+                        curl http://localhost:8080/actuator/health || exit 1
                     '''
                 }
             }
