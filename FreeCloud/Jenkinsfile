@@ -6,59 +6,34 @@ pipeline {
         jdk 'JDK11'
     }
     
-    environment {
-        BACKEND_REPO = 'https://github.com/bbbikngman/MyCloud'
-        BACKEND_BRANCH = 'main'
-        BACKEND_DIR = 'FreeCloud/cloudServer'
-    }
-    
     stages {
-        stage('Checkout') {
-            steps {
-                // Clean workspace before checkout
-                cleanWs()
-                
-                // Checkout the backend repository
-                git branch: env.BACKEND_BRANCH,
-                    url: env.BACKEND_REPO,
-                    credentialsId: 'github-credentials'
-                
-                // Verify we're in the right directory and list contents
-                sh 'pwd && ls -la'
-            }
-        }
-        
         stage('Build Backend') {
             steps {
-                dir(env.BACKEND_DIR) {
-                    // Verify we're in the backend directory
-                    sh 'pwd && ls -la'
-                    
-                    // Build the backend
-                    sh '''
-                        java -version
-                        mvn -version
-                        mvn clean package -DskipTests
-                    '''
+                dir('FreeCloud/cloudServer') {
+                    sh 'mvn clean package -DskipTests'
                 }
             }
         }
         
         stage('Test Backend') {
             steps {
-                dir(env.BACKEND_DIR) {
+                dir('FreeCloud/cloudServer') {
                     sh 'mvn test'
                 }
             }
         }
         
-        // Add deployment stage if needed
         stage('Deploy Backend') {
-             steps {
+            steps {
                 dir('FreeCloud/cloudServer') {
                     sh '''
-                         # Copy the JAR
+                        # Copy the JAR
                         cp target/*.jar /opt/myapp/cloudServer.jar
+                        
+                        # Ensure log directory exists
+                        mkdir -p /opt/myapp/logs
+                        touch /opt/myapp/logs/application.log
+                        chown -R jenkins:jenkins /opt/myapp/logs
                         
                         # Reload systemd
                         sudo systemctl daemon-reload
@@ -69,11 +44,22 @@ pipeline {
                         # Check status
                         sudo systemctl status myapp
                         
+                        # Start log capture in background
+                        tail -f /opt/myapp/logs/application.log > ${WORKSPACE}/spring-boot.log &
+                        TAIL_PID=$!
+                        
                         # Verify application is running
                         sleep 10
                         curl http://localhost:8080/actuator/health || exit 1
+                        
+                        # Keep collecting logs for a bit to capture startup
+                        sleep 30
+                        kill $TAIL_PID
                     '''
                 }
+                // Archive the logs
+                archiveArtifacts artifacts: 'spring-boot.log', followSymlinks: false
+            }
             }
         }
     }
@@ -82,11 +68,11 @@ pipeline {
         always {
             cleanWs()
         }
-        success {
-            echo 'Pipeline succeeded!'
-        }
         failure {
             echo 'Pipeline failed!'
+        }
+        success {
+            echo 'Pipeline succeeded!'
         }
     }
 }
