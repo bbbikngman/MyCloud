@@ -83,7 +83,7 @@ public class FileController {
         }
     }
 
-    @GetMapping("/{*path}")
+    @GetMapping("/info/{*path}")
     public ResponseEntity<FileInfo> getFileInfo(@PathVariable String path) {
         try {
             FileInfo fileInfo = fileService.getFileInfo(path);
