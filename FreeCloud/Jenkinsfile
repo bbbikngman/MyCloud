@@ -57,6 +57,12 @@ pipeline {
             steps {
                 dir(env.BACKEND_DIR) {
                     // Add your deployment steps here
+                     // Copy JAR to destination
+                    sh 'sudo cp FreeCloud/cloudServer/target/*.jar /opt/myapp/'
+                    // Restart service
+                    sh 'sudo systemctl restart myapp'
+                    // Check service status
+                    sh 'sudo systemctl status myapp'
                     echo 'Deployment steps will go here'
                 }
             }
