@@ -2,6 +2,7 @@ package com.sinuohao.service.impl;
 
 import com.sinuohao.config.FileStorageProperties;
 import com.sinuohao.model.FileInfo;
+import com.sinuohao.repository.FileRepository;
 import com.sinuohao.service.FileService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.UrlResource;
@@ -22,6 +23,9 @@ public class FileServiceImpl implements FileService {
 
     @Autowired
     private FileStorageProperties storageProperties;
+
+    @Autowired
+    private FileRepository fileRepository;
 
     private Path rootLocation;
 
@@ -45,29 +49,47 @@ public class FileServiceImpl implements FileService {
                 throw new RuntimeException("File size exceeds maximum limit");
             }
 
+            String originalFilename = file.getOriginalFilename();
+            String extension = originalFilename != null ? getFileExtension(originalFilename) : "";
+            String baseName = originalFilename != null ? 
+                    originalFilename.substring(0, originalFilename.lastIndexOf('.')) : 
+                    String.valueOf(System.currentTimeMillis());
+            
             // Create user specified directory path if it doesn't exist
-            Path userPath = rootLocation.resolve(filepath).normalize();
+            Path directoryPath = rootLocation.resolve(filepath).normalize();
             
             // Security check - make sure the resolved path is still under root location
-            if (!userPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
+            if (!directoryPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
                 throw new RuntimeException("Cannot store file outside root directory");
             }
             
-            Files.createDirectories(userPath);
+            Files.createDirectories(directoryPath);
 
-            // Check if file exists at the specified filepath
-            if (Files.exists(userPath)) {
-                // Append timestamp to filepath
-                String timestamp = String.valueOf(System.currentTimeMillis());
-                filepath = filepath + timestamp;
-                userPath = rootLocation.resolve(filepath).normalize();
+            // Generate unique filename if a file with the same name exists
+            String finalFilename = baseName;
+            Path finalPath = directoryPath.resolve(finalFilename + "." + extension);
+            int counter = 1;
+            while (Files.exists(finalPath)) {
+                finalFilename = baseName + "_" + counter++;
+                finalPath = directoryPath.resolve(finalFilename + "." + extension);
             }
 
             // Copy file to destination
-            Files.copy(file.getInputStream(), userPath, StandardCopyOption.REPLACE_EXISTING);
+            Files.copy(file.getInputStream(), finalPath, StandardCopyOption.REPLACE_EXISTING);
+
+            // Save file information to database
+            FileInfo fileInfo = FileInfo.builder()
+                    .name(finalFilename)
+                    .path(filepath)
+                    .size(file.getSize())
+                    .suffix(extension)
+                    .isDirectory(false)
+                    .build();
+            
+            fileRepository.save(fileInfo);
 
             // Return relative path from base directory
-            return filepath;
+            return filepath + (filepath.endsWith("/") ? "" : "/") + finalFilename + "." + extension;
 
         } catch (IOException e) {
             throw new RuntimeException("Failed to store file", e);
@@ -77,8 +99,18 @@ public class FileServiceImpl implements FileService {
     @Override
     public Resource downloadFile(String filepath, String filename) {
         try {
+            // First try to find the file in database
+            int lastDotIndex = filename.lastIndexOf('.');
+            String name = lastDotIndex > -1 ? filename.substring(0, lastDotIndex) : filename;
+            String suffix = lastDotIndex > -1 ? filename.substring(lastDotIndex + 1) : "";
+            
+            FileInfo fileInfo = fileRepository.findByPathAndNameAndSuffix(filepath, name, suffix);
+            if (fileInfo == null) {
+                throw new RuntimeException("File not found in database: " + filepath + "/" + filename);
+            }
+            
             // Combine filepath and filename, normalize to prevent path traversal
-            Path fullPath = rootLocation.resolve(filepath).resolve(filename).normalize();
+            Path fullPath = rootLocation.resolve(filepath).resolve(name + "." + suffix).normalize();
             
             // Security check - make sure the resolved path is still under root location
             if (!fullPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
@@ -130,6 +162,22 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileInfo getFileInfo(String path) {
         try {
+            // Split the path into directory and filename
+            int lastDotIndex = path.lastIndexOf('.');
+            int lastSlashIndex = path.lastIndexOf('/');
+            
+            String directory = lastSlashIndex > 0 ? path.substring(0, lastSlashIndex) : "";
+            String filename = lastSlashIndex > 0 ? path.substring(lastSlashIndex + 1) : path;
+            String name = lastDotIndex > lastSlashIndex ? filename.substring(0, filename.lastIndexOf('.')) : filename;
+            String suffix = lastDotIndex > lastSlashIndex ? filename.substring(filename.lastIndexOf('.') + 1) : "";
+
+            // Query the database first
+            FileInfo fileInfo = fileRepository.findByPathAndNameAndSuffix(directory, name, suffix);
+            if (fileInfo != null) {
+                return fileInfo;
+            }
+
+            // If not found in database, check filesystem
             Path filePath = rootLocation.resolve(path);
             if (!Files.exists(filePath)) {
                 throw new RuntimeException("File not found: " + path);
@@ -137,10 +185,10 @@ public class FileServiceImpl implements FileService {
 
             boolean isDir = Files.isDirectory(filePath);
             return FileInfo.builder()
-                    .name(filePath.getFileName().toString())
-                    .path(path)
+                    .name(name)
+                    .path(directory)
                     .size(isDir ? -1L : Files.size(filePath))
-                    .suffix(isDir ? null : getFileExtension(filePath.toString()))
+                    .suffix(isDir ? null : suffix)
                     .createTime(Instant.ofEpochMilli(Files.getAttribute(filePath, "creationTime").hashCode()))
                     .updateTime(Instant.ofEpochMilli(Files.getLastModifiedTime(filePath).toMillis()))
                     .isDirectory(isDir)
