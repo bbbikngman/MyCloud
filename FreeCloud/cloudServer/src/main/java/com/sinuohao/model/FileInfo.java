@@ -1,12 +1,18 @@
 package com.sinuohao.model;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.NoArgsConstructor;
 import javax.persistence.*;
 import java.time.Instant;
 
 @Data
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@NoArgsConstructor
 @Entity
 @Table(name = "files")
 public class FileInfo {
@@ -34,6 +40,18 @@ public class FileInfo {
     
     @Column(name = "is_directory", nullable = false)
     private boolean isDirectory;
+
+    // Constructor for error cases
+    public static FileInfo createError(String path, String errorMessage) {
+        return FileInfo.builder()
+                .name(errorMessage)
+                .path(path)
+                .size(-1L)
+                .createTime(Instant.now())
+                .updateTime(Instant.now())
+                .isDirectory(false)
+                .build();
+    }
     
     @PrePersist
     protected void onCreate() {

@@ -4,22 +4,27 @@ import com.sinuohao.config.FileStorageProperties;
 import com.sinuohao.model.FileInfo;
 import com.sinuohao.repository.FileRepository;
 import com.sinuohao.service.FileService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.core.io.Resource;
 
 import javax.annotation.PostConstruct;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
 public class FileServiceImpl implements FileService {
+    private static final Logger log = LoggerFactory.getLogger(FileServiceImpl.class);
 
     @Autowired
     private FileStorageProperties storageProperties;
@@ -162,6 +167,10 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileInfo getFileInfo(String path) {
         try {
+            if (path == null || path.trim().isEmpty()) {
+                throw new IllegalArgumentException("Path cannot be null or empty");
+            }
+
             // Split the path into directory and filename
             int lastDotIndex = path.lastIndexOf('.');
             int lastSlashIndex = path.lastIndexOf('/');
@@ -171,30 +180,63 @@ public class FileServiceImpl implements FileService {
             String name = lastDotIndex > lastSlashIndex ? filename.substring(0, filename.lastIndexOf('.')) : filename;
             String suffix = lastDotIndex > lastSlashIndex ? filename.substring(filename.lastIndexOf('.') + 1) : "";
 
+            log.debug("Parsed path components - path: {}, directory: {}, filename: {}, name: {}, suffix: {}", 
+                     path, directory, filename, name, suffix);
+
             // Query the database first
             FileInfo fileInfo = fileRepository.findByPathAndNameAndSuffix(directory, name, suffix);
             if (fileInfo != null) {
+                log.debug("Found file info in database: {}", fileInfo);
                 return fileInfo;
             }
 
+            log.debug("No record found in database, checking filesystem");
+
             // If not found in database, check filesystem
-            Path filePath = rootLocation.resolve(path);
+            Path filePath = rootLocation.resolve(path).normalize();
+            
+            // Security check
+            if (!filePath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
+                throw new SecurityException("Access to file outside root directory is not allowed");
+            }
+
             if (!Files.exists(filePath)) {
+                log.debug("File not found in filesystem: {}", filePath);
                 throw new RuntimeException("File not found: " + path);
             }
 
             boolean isDir = Files.isDirectory(filePath);
-            return FileInfo.builder()
+            BasicFileAttributes attrs = Files.readAttributes(filePath, BasicFileAttributes.class);
+
+            FileInfo newFileInfo = FileInfo.builder()
                     .name(name)
                     .path(directory)
                     .size(isDir ? -1L : Files.size(filePath))
                     .suffix(isDir ? null : suffix)
-                    .createTime(Instant.ofEpochMilli(Files.getAttribute(filePath, "creationTime").hashCode()))
-                    .updateTime(Instant.ofEpochMilli(Files.getLastModifiedTime(filePath).toMillis()))
+                    .createTime(attrs.creationTime().toInstant())
+                    .updateTime(attrs.lastModifiedTime().toInstant())
                     .isDirectory(isDir)
                     .build();
+
+            log.debug("Created new file info from filesystem: {}", newFileInfo);
+            
+            // Save to database for future queries
+            fileRepository.save(newFileInfo);
+            log.debug("Saved new file info to database");
+
+            return newFileInfo;
+
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException("File not found: " + path, e);
+        } catch (SecurityException e) {
+            log.error("Security violation accessing path: {}", path);
+            throw e;
         } catch (IOException e) {
-            throw new RuntimeException("Failed to get file info", e);
+            log.error("IO error getting file info for path: {}", path, e);
+            throw new RuntimeException("Failed to get file info: " + e.getMessage(), e);
+        } catch (Exception e) {
+            log.error("Unexpected error getting file info for path: {}", path, e);
+            throw new RuntimeException("Failed to get file info: " + e.getMessage(), e);
         }
     }
     
