@@ -44,17 +44,16 @@ pipeline {
                         # Check status
                         sudo systemctl status myapp
                         
-                        # Start log capture in background
-                        tail -f /opt/myapp/logs/application.log > ${WORKSPACE}/spring-boot.log &
+                        # Start log capture in background and keep it running
+                        nohup tail -f /opt/myapp/logs/application.log > ${WORKSPACE}/spring-boot.log 2>&1 &
                         TAIL_PID=$!
                         
                         # Verify application is running
                         sleep 10
                         curl http://localhost:8080/actuator/health || exit 1
                         
-                        # Keep collecting logs for a bit to capture startup
-                        sleep 30
-                        kill $TAIL_PID
+                        # Let it run indefinitely - the process will be terminated when Jenkins job ends
+                        echo "Tail process (PID: $TAIL_PID) is running in background"
                     '''
                 }
                 archiveArtifacts artifacts: 'spring-boot.log', followSymlinks: false
