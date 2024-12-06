@@ -1,0 +1,77 @@
+pipeline {
+    agent any
+    
+    tools {
+        maven 'Maven3'
+        jdk 'JDK11'
+    }
+    
+    environment {
+        BACKEND_REPO = 'https://github.com/bbbikngman/MyCloud'
+        BACKEND_BRANCH = 'main'
+        BACKEND_DIR = 'cloudServer'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                // Clean workspace before checkout
+                cleanWs()
+                
+                // Checkout the backend repository
+                git branch: env.BACKEND_BRANCH,
+                    url: env.BACKEND_REPO,
+                    credentialsId: 'github-credentials'
+                
+                // Verify we're in the right directory and list contents
+                sh 'pwd && ls -la'
+            }
+        }
+        
+        stage('Build Backend') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    // Verify we're in the backend directory
+                    sh 'pwd && ls -la'
+                    
+                    // Build the backend
+                    sh '''
+                        java -version
+                        mvn -version
+                        mvn clean package -DskipTests
+                    '''
+                }
+            }
+        }
+        
+        stage('Test Backend') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    sh 'mvn test'
+                }
+            }
+        }
+        
+        // Add deployment stage if needed
+        stage('Deploy Backend') {
+            steps {
+                dir(env.BACKEND_DIR) {
+                    // Add your deployment steps here
+                    echo 'Deployment steps will go here'
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline succeeded!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
