@@ -54,18 +54,20 @@ pipeline {
         
         // Add deployment stage if needed
         stage('Deploy Backend') {
-            steps {
+             steps {
                 dir('FreeCloud/cloudServer') {
                     sh '''
-                        # Copy JAR without sudo
-                        cp target/*.jar /opt/myapp/
+                        # Copy the JAR
+                        cp target/*.jar /opt/myapp/cloudServer.jar
                         
-                        # Start the application (choose one method)
-                        # Method 1: Direct Java execution
-                        nohup java -jar /opt/myapp/*.jar > /opt/myapp/app.log 2>&1 &
+                        # Reload systemd
+                        sudo systemctl daemon-reload
                         
-                        # OR Method 2: If using systemd
-                        # sudo systemctl restart myapp
+                        # Restart the service
+                        sudo systemctl restart myapp
+                        
+                        # Check status
+                        sudo systemctl status myapp
                     '''
                 }
             }
