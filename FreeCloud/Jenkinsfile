@@ -57,9 +57,7 @@ pipeline {
                         kill $TAIL_PID
                     '''
                 }
-                // Archive the logs
                 archiveArtifacts artifacts: 'spring-boot.log', followSymlinks: false
-            }
             }
         }
     }
