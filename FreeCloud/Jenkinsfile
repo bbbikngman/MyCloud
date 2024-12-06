@@ -9,7 +9,7 @@ pipeline {
     environment {
         BACKEND_REPO = 'https://github.com/bbbikngman/MyCloud'
         BACKEND_BRANCH = 'main'
-        BACKEND_DIR = 'cloudServer'
+        BACKEND_DIR = 'FreeCloud/cloudServer'
     }
     
     stages {
