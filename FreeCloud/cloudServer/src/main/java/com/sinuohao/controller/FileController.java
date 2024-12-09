@@ -2,7 +2,11 @@ package com.sinuohao.controller;
 
 import com.sinuohao.model.FileInfo;
 import com.sinuohao.service.FileService;
+
+
+
 import com.sinuohao.response.*;
+import com.sinuohao.util.FileUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +25,7 @@ import java.util.stream.Collectors;
 import javax.servlet.http.HttpServletRequest;
 
 
+
 @RestController
 @RequestMapping("/api/files")
 @CrossOrigin(origins = "*")
@@ -36,7 +41,8 @@ public class FileController {
         String filepath = "";
         try {
             // Extract filepath from URI
-            filepath  = extractPathFromUri(request.getRequestURI(), "/api/files/upload/");
+            filepath = FileUtil.extractAndSanitizePath(request.getRequestURI(), "upload");
+           
             String path = fileService.storeFile(filepath, file);
             FileInfoResponse response = fileService.getFileInfo(path);
             return ResponseEntity.ok(response);
@@ -50,8 +56,11 @@ public class FileController {
 
     @GetMapping("/download/**")
     public ResponseEntity<?> downloadFile(HttpServletRequest request) {
-        String downloadPath = extractPathFromUri(request.getRequestURI(), "/api/files/download/");
+        String downloadPath = FileUtil.extractAndSanitizePath(request.getRequestURI(), "download");
         try {
+            if (downloadPath.contains("/download/")) {
+                downloadPath = downloadPath.substring(downloadPath.indexOf("/download/") + "/download/".length());
+            }
             int lastSlashIndex = downloadPath.lastIndexOf('/');
             String filepath = lastSlashIndex > 0 ? downloadPath.substring(0, lastSlashIndex) : "";
             String filename = lastSlashIndex > 0 ? downloadPath.substring(lastSlashIndex + 1) : downloadPath;
@@ -84,7 +93,7 @@ public class FileController {
 
     @GetMapping("/info/**")
     public ResponseEntity<FileInfoResponse> getFileInfo(HttpServletRequest request) {
-        String path = extractPathFromUri(request.getRequestURI(), "/api/files/info/");
+        String path = FileUtil.extractAndSanitizePath(request.getRequestURI(), "info");
         try {
             FileInfoResponse response = fileService.getFileInfo(path);
             return ResponseEntity.ok(response);
@@ -98,7 +107,8 @@ public class FileController {
 
     @DeleteMapping("/delete/**")
     public ResponseEntity<FileInfoResponse> deleteFile(HttpServletRequest request) {
-        String filename = extractPathFromUri(request.getRequestURI(), "/api/files/delete/");
+        String filename = FileUtil.extractAndSanitizePath(request.getRequestURI(), "delete");
+
         try {
             fileService.deleteFile(filename);
             return ResponseEntity.ok(FileInfoResponse.createSuccess(null, null));
@@ -129,28 +139,6 @@ public class FileController {
         }
     }
 
-     // Helper method to extract path from URI
-    private String extractPathFromUri(String requestUri, String prefix) {
-        String path = "";
-        if (requestUri.startsWith(prefix)) {
-            path = requestUri.substring(prefix.length());
-        }
-        return sanitizePath(path);
-    }
-
-    private String sanitizePath(String path) {
-        if (path == null || path.isEmpty()) {
-            return "";
-        }
-        // Convert backslashes to forward slashes
-        path = path.replace('\\', '/');
-        // Remove leading/trailing slashes
-        path = path.replaceAll("^/+|/+$", "");
-        // Normalize multiple slashes
-        path = path.replaceAll("/+", "/");
-        // Remove directory traversal attempts
-        return Arrays.stream(path.split("/"))
-                .filter(s -> !s.isEmpty() && !".".equals(s) && !"..".equals(s))
-                .collect(Collectors.joining("/"));
-    }
+    
+    
 }

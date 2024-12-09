@@ -13,7 +13,8 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.Base64;
+import java.util.stream.Collectors;
+
 
 public class FileUtil {
     private static final Logger log = LoggerFactory.getLogger(FileUtil.class);
@@ -107,6 +108,38 @@ public class FileUtil {
         String suffix = lastDotIndex > lastSlashIndex ? filename.substring(filename.lastIndexOf('.') + 1) : "";
 
         return new PathInfo(directory, name, suffix);
+    }
+
+   private static String extractPathAfterSegment(String uri, String segment) {
+        int index = uri.indexOf("/" + segment + "/");
+        if (index != -1) {
+            String path = uri.substring(index + segment.length() + 2);
+            // Optional: add path sanitization here if needed
+            return path;
+        }
+        return "";
+    }
+
+    private static String sanitizePath(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        // Convert backslashes to forward slashes
+        path = path.replace('\\', '/');
+        // Remove leading/trailing slashes
+        path = path.replaceAll("^/+|/+$", "");
+        // Normalize multiple slashes
+        path = path.replaceAll("/+", "/");
+        // Remove directory traversal attempts
+        return Arrays.stream(path.split("/"))
+                .filter(s -> !s.isEmpty() && !".".equals(s) && !"..".equals(s))
+                .collect(Collectors.joining("/"));
+    }
+
+    // New public method that combines both operations
+    public static String extractAndSanitizePath(String uri, String segment) {
+        String extractedPath = extractPathAfterSegment(uri, segment);
+        return sanitizePath(extractedPath);
     }
 
     public static class PathInfo {
