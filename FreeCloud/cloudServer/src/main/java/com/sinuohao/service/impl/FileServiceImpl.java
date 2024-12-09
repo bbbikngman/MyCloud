@@ -8,6 +8,8 @@ import com.sinuohao.response.FileInfoResponse;
 import com.sinuohao.response.FileListResponse;
 import com.sinuohao.service.FileService;
 import com.sinuohao.util.FileUtil;
+import com.sinuohao.util.FileUtil.PathInfo;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,8 +59,8 @@ public class FileServiceImpl implements FileService {
                 throw new RuntimeException("File size exceeds maximum limit");
             }
 
-            // Remove leading slash if present
-            filepath = filepath.startsWith("/") ? filepath.substring(1) : filepath;
+           // Sanitize the filepath
+           filepath = FileUtil.sanitizePath(filepath);
 
             String originalFilename = file.getOriginalFilename();
             String extension = FileUtil.getFileExtension(originalFilename);
@@ -107,9 +109,8 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileDownloadResponse downloadFile(String filepath, String filename) {
         try {
-            // Remove leading slash if present
-            filepath = filepath.startsWith("/") ? filepath.substring(1) : filepath;
-            
+            FileUtil.sanitizePath(filepath); // sanitizePath
+
             // First try to find the file in database
             int lastDotIndex = filename.lastIndexOf('.');
             String name = lastDotIndex > -1 ? filename.substring(0, lastDotIndex) : filename;
@@ -147,8 +148,7 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileInfoResponse getFileInfo(String path) {
         try {
-            // Remove leading slash if present
-            path = path.startsWith("/") ? path.substring(1) : path;
+            FileUtil.sanitizePath(path); // sanitizePath
             
             FileUtil.PathInfo pathInfo = FileUtil.parseFilePath(path);
             log.debug("Parsed path components - directory: {}, name: {}, suffix: {}", 
@@ -196,8 +196,8 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileListResponse listFiles(String path, int start, int end, String sortBy, boolean ascending, String suffix) {
         try {
-            // Remove leading slash if present
-            path = path.startsWith("/") ? path.substring(1) : path;
+            // Sanitize the path
+            path = FileUtil.sanitizePath(path);
             
             Path directoryPath = rootLocation.resolve(path).normalize();
             
