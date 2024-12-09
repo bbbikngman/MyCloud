@@ -57,6 +57,9 @@ public class FileServiceImpl implements FileService {
                 throw new RuntimeException("File size exceeds maximum limit");
             }
 
+            // Remove leading slash if present
+            filepath = filepath.startsWith("/") ? filepath.substring(1) : filepath;
+
             String originalFilename = file.getOriginalFilename();
             String extension = FileUtil.getFileExtension(originalFilename);
             String baseName = FileUtil.getBaseName(originalFilename);
@@ -104,6 +107,9 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileDownloadResponse downloadFile(String filepath, String filename) {
         try {
+            // Remove leading slash if present
+            filepath = filepath.startsWith("/") ? filepath.substring(1) : filepath;
+            
             // First try to find the file in database
             int lastDotIndex = filename.lastIndexOf('.');
             String name = lastDotIndex > -1 ? filename.substring(0, lastDotIndex) : filename;
@@ -141,6 +147,9 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileInfoResponse getFileInfo(String path) {
         try {
+            // Remove leading slash if present
+            path = path.startsWith("/") ? path.substring(1) : path;
+            
             FileUtil.PathInfo pathInfo = FileUtil.parseFilePath(path);
             log.debug("Parsed path components - directory: {}, name: {}, suffix: {}", 
                      pathInfo.getDirectory(), pathInfo.getName(), pathInfo.getSuffix());
@@ -187,6 +196,9 @@ public class FileServiceImpl implements FileService {
     @Override
     public FileListResponse listFiles(String path, int start, int end, String sortBy, boolean ascending, String suffix) {
         try {
+            // Remove leading slash if present
+            path = path.startsWith("/") ? path.substring(1) : path;
+            
             Path directoryPath = rootLocation.resolve(path).normalize();
             
             // Security check
@@ -201,6 +213,7 @@ public class FileServiceImpl implements FileService {
             List<FileInfo> files = fileRepository.findByPath(path);
             if (files.isEmpty()) {
                 // If not in database, scan directory
+                String localPath = path;
                 files = Files.list(directoryPath)
                     .map(p -> {
                         try {
@@ -210,7 +223,7 @@ public class FileServiceImpl implements FileService {
                             
                             return FileInfo.builder()
                                     .name(baseName)
-                                    .path(path)
+                                    .path(localPath)
                                     .size(Files.isDirectory(p) ? -1L : Files.size(p))
                                     .suffix(fileSuffix)
                                     .isDirectory(Files.isDirectory(p))
