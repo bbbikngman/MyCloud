@@ -110,7 +110,7 @@ public class FileUtil {
         return new PathInfo(directory, name, suffix);
     }
 
-   private static String extractPathAfterSegment(String uri, String segment) {
+    public static String extractPathAfterSegment(String uri, String segment) {
         int index = uri.indexOf("/" + segment + "/");
         if (index != -1) {
             String path = uri.substring(index + segment.length() + 2);
@@ -120,7 +120,7 @@ public class FileUtil {
         return "";
     }
 
-    private static String sanitizePath(String path) {
+    public static String sanitizePath(String path) {
         if (path == null || path.isEmpty()) {
             return "";
         }
