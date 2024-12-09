@@ -8,7 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import java.util.Collections;
+
 import java.util.List;
 import java.util.Map;
 
@@ -21,26 +21,37 @@ public class MessageController {
     @Autowired
     private MessageService messageService;
 
-    @GetMapping
-    public ResponseEntity<?> getAllMessages() {
+    @PostMapping
+    public ResponseEntity<?> createMessage(@RequestBody Message message) {
         try {
-            List<Message> messages = messageService.getAllMessages();
-            return ResponseEntity.ok(messages);
+            logger.debug("Creating message: {}", message);
+            Message savedMessage = messageService.saveMessage(message);
+            return ResponseEntity.ok(savedMessage);
         } catch (Exception e) {
-            logger.error("Error retrieving all messages", e);
+            logger.error("Error creating message: {}", message, e);
             return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", e.getMessage()));
         }
     }
 
-    @PostMapping
-    public ResponseEntity<?> createMessage(@RequestBody Message message) {
+    @GetMapping
+    public ResponseEntity<?> searchMessages(
+            @RequestParam(required = false) String query,
+            @RequestParam(defaultValue = "0") int start,
+            @RequestParam(defaultValue = "100") int end) {
         try {
-            Message savedMessage = messageService.saveMessage(message);
-            return ResponseEntity.ok(savedMessage);
+            if (start < 0 || end < start) {
+                return ResponseEntity
+                    .badRequest()
+                    .body(Map.of("error", "Invalid range: start must be non-negative and end must be greater than start"));
+            }
+            
+            logger.debug("Searching messages - query: {}, start: {}, end: {}", query, start, end);
+            List<Message> messages = messageService.searchMessages(query, start, end);
+            return ResponseEntity.ok(messages);
         } catch (Exception e) {
-            logger.error("Error creating message: {}", message, e);
+            logger.error("Error searching messages with query: {}", query, e);
             return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("error", e.getMessage()));

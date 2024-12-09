@@ -31,6 +31,9 @@ public class FileInfo {
     @Column
     private String suffix;
     
+    @Column
+    private String thumbnailPath;
+    
     @Column(name = "create_time", nullable = false)
     private Instant createTime;
     
