@@ -7,7 +7,6 @@ import com.sinuohao.response.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.core.io.FileUrlResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -16,8 +15,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Arrays;
+import java.util.stream.Collectors;
+
 import javax.servlet.http.HttpServletRequest;
-import java.util.List;
+
 
 @RestController
 @RequestMapping("/api/files")
@@ -28,11 +30,14 @@ public class FileController {
     @Autowired
     private FileService fileService;
 
-    @PostMapping("/upload/{*filepath}")
-    public ResponseEntity<FileInfoResponse> uploadFile(@PathVariable(required = false) String filepath,
+    @PostMapping("/upload/**")
+    public ResponseEntity<FileInfoResponse> uploadFile( HttpServletRequest request,
                                                      @RequestParam("file") MultipartFile file) {
+        String filepath = "";
         try {
-            String path = fileService.storeFile(filepath != null ? filepath : "", file);
+            // Extract filepath from URI
+            filepath  = extractPathFromUri(request.getRequestURI(), "/api/files/upload/");
+            String path = fileService.storeFile(filepath, file);
             FileInfoResponse response = fileService.getFileInfo(path);
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -43,8 +48,9 @@ public class FileController {
         }
     }
 
-    @GetMapping("/download/{*downloadPath}")
-    public ResponseEntity<?> downloadFile(@PathVariable String downloadPath, HttpServletRequest request) {
+    @GetMapping("/download/**")
+    public ResponseEntity<?> downloadFile(HttpServletRequest request) {
+        String downloadPath = extractPathFromUri(request.getRequestURI(), "/api/files/download/");
         try {
             int lastSlashIndex = downloadPath.lastIndexOf('/');
             String filepath = lastSlashIndex > 0 ? downloadPath.substring(0, lastSlashIndex) : "";
@@ -76,8 +82,9 @@ public class FileController {
         }
     }
 
-    @GetMapping("/info/{*path}")
-    public ResponseEntity<FileInfoResponse> getFileInfo(@PathVariable String path) {
+    @GetMapping("/info/**")
+    public ResponseEntity<FileInfoResponse> getFileInfo(HttpServletRequest request) {
+        String path = extractPathFromUri(request.getRequestURI(), "/api/files/info/");
         try {
             FileInfoResponse response = fileService.getFileInfo(path);
             return ResponseEntity.ok(response);
@@ -89,8 +96,9 @@ public class FileController {
         }
     }
 
-    @DeleteMapping("/{*filename}")
-    public ResponseEntity<FileInfoResponse> deleteFile(@PathVariable String filename) {
+    @DeleteMapping("/delete/**")
+    public ResponseEntity<FileInfoResponse> deleteFile(HttpServletRequest request) {
+        String filename = extractPathFromUri(request.getRequestURI(), "/api/files/delete/");
         try {
             fileService.deleteFile(filename);
             return ResponseEntity.ok(FileInfoResponse.createSuccess(null, null));
@@ -119,5 +127,30 @@ public class FileController {
                     .status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(FileListResponse.createError(e.getMessage()));
         }
+    }
+
+     // Helper method to extract path from URI
+    private String extractPathFromUri(String requestUri, String prefix) {
+        String path = "";
+        if (requestUri.startsWith(prefix)) {
+            path = requestUri.substring(prefix.length());
+        }
+        return sanitizePath(path);
+    }
+
+    private String sanitizePath(String path) {
+        if (path == null || path.isEmpty()) {
+            return "";
+        }
+        // Convert backslashes to forward slashes
+        path = path.replace('\\', '/');
+        // Remove leading/trailing slashes
+        path = path.replaceAll("^/+|/+$", "");
+        // Normalize multiple slashes
+        path = path.replaceAll("/+", "/");
+        // Remove directory traversal attempts
+        return Arrays.stream(path.split("/"))
+                .filter(s -> !s.isEmpty() && !".".equals(s) && !"..".equals(s))
+                .collect(Collectors.joining("/"));
     }
 }
