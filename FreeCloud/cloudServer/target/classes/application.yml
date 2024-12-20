@@ -27,3 +27,7 @@ logging:
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
     com.zaxxer.hikari: DEBUG
+aws:
+  s3:
+    region: ap-northeast-1
+    bucket: freecloud

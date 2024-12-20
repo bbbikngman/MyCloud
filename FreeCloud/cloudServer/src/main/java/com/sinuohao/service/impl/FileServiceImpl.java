@@ -1,35 +1,34 @@
 package com.sinuohao.service.impl;
 
 import com.sinuohao.config.FileStorageProperties;
+import com.sinuohao.config.S3Configuration;
+import com.sinuohao.exception.FileDownloadException;
+import com.sinuohao.exception.FileNotReadableException;
 import com.sinuohao.model.FileInfo;
 import com.sinuohao.repository.FileRepository;
-import com.sinuohao.response.FileDownloadResponse;
-import com.sinuohao.response.FileInfoResponse;
-import com.sinuohao.response.FileListResponse;
 import com.sinuohao.service.FileService;
+import com.sinuohao.service.S3Service;
 import com.sinuohao.util.FileUtil;
-import com.sinuohao.util.FileUtil.PathInfo;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
-import org.springframework.core.io.UrlResource;
+
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.PostConstruct;
 import java.io.IOException;
-import java.net.MalformedURLException;
+import java.io.InputStream;
 import java.nio.file.*;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.Collections;
 
+/**
+ * Service for storing and retrieving files.
+ */
 @Service
 public class FileServiceImpl implements FileService {
-    private static final Logger log = LoggerFactory.getLogger(FileServiceImpl.class);
 
     @Autowired
     private FileStorageProperties storageProperties;
@@ -37,10 +36,17 @@ public class FileServiceImpl implements FileService {
     @Autowired
     private FileRepository fileRepository;
 
+    @Autowired
+    private S3Configuration s3Configuration;
+
+    @Autowired
+    private S3Service s3Service;
+
     private Path rootLocation;
 
     @PostConstruct
     public void init() {
+        // Initialize storage location setted in application.yml
         rootLocation = Paths.get(storageProperties.getBasePath());
         try {
             Files.createDirectories(rootLocation);
@@ -50,7 +56,7 @@ public class FileServiceImpl implements FileService {
     }
 
     @Override
-    public String storeFile(String filepath, MultipartFile file) {
+    public Long storeFile(MultipartFile file) {
         try {
             if (file.isEmpty()) {
                 throw new RuntimeException("Failed to store empty file");
@@ -58,231 +64,98 @@ public class FileServiceImpl implements FileService {
             if (file.getSize() > storageProperties.getMaxSize()) {
                 throw new RuntimeException("File size exceeds maximum limit");
             }
-
-           // Sanitize the filepath
-           filepath = FileUtil.sanitizePath(filepath);
-
+            
             String originalFilename = file.getOriginalFilename();
             String extension = FileUtil.getFileExtension(originalFilename);
             String baseName = FileUtil.getBaseName(originalFilename);
-            
-            // Create user specified directory path if it doesn't exist
-            Path directoryPath = rootLocation.resolve(filepath).normalize();
-            
-            // Security check - make sure the resolved path is still under root location
-            if (!directoryPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
-                throw new RuntimeException("Cannot store file outside root directory");
-            }
-            
-            Files.createDirectories(directoryPath);
 
-            // Generate unique filename if a file with the same name exists
-            String finalFilename = baseName;
-            Path finalPath = directoryPath.resolve(finalFilename + "." + extension);
-            int counter = 1;
-            while (Files.exists(finalPath)) {
-                finalFilename = baseName + "_" + counter++;
-                finalPath = directoryPath.resolve(finalFilename + "." + extension);
-            }
-
-            // Copy file to destination
-            Files.copy(file.getInputStream(), finalPath, StandardCopyOption.REPLACE_EXISTING);
-            // Save file information to database
+            String bucketName = s3Configuration.getDefaultBucket();
+           
+           
+            // generate file metadata and save to database
             FileInfo fileInfo = FileInfo.builder()
-                    .name(finalFilename)
-                    .path(filepath)
+                    .name(baseName)
                     .size(file.getSize())
                     .suffix(extension)
-                    .isDirectory(false)
                     .build();
-            
+            fileInfo.generatecontentTypeAndS3Key();
             fileRepository.save(fileInfo);
 
-            // Return relative path from base directory
-            return filepath + (filepath.endsWith("/") ? "" : "/") + finalFilename + "." + extension;
+            // store file to S3
+            s3Service.uploadFile(bucketName, fileInfo.getS3Key(), file.getInputStream());
+            // give the id of the file in case front need to use it immediately
+            return fileInfo.getId();
 
         } catch (IOException e) {
             throw new RuntimeException("Failed to store file", e);
         }
     }
 
-    @Override
-    public FileDownloadResponse downloadFile(String filepath, String filename) {
+ @Override
+    public Resource downloadFile(Long id, String s3Key) {
+        // Don't catch, let it throw FileNotFoundException
+        if (s3Key == null || s3Key.isEmpty()) {
+            FileInfo fileInfo = getFileInfoById(id);
+            s3Key = fileInfo.getS3Key();
+        }
+        
         try {
-            FileUtil.sanitizePath(filepath); // sanitizePath
-
-            // First try to find the file in database
-            int lastDotIndex = filename.lastIndexOf('.');
-            String name = lastDotIndex > -1 ? filename.substring(0, lastDotIndex) : filename;
-            String suffix = lastDotIndex > -1 ? filename.substring(lastDotIndex + 1) : "";
+            // Convert InputStream to Resource properly
+            InputStream inputStream = s3Service.downloadFile(s3Configuration.getDefaultBucket(), s3Key);
+            Resource resource = new InputStreamResource(inputStream);
             
-            FileInfo fileInfo = fileRepository.findByPathAndNameAndSuffix(filepath, name, suffix);
-            if (fileInfo == null) {
-                throw new RuntimeException("File not found in database: " + filepath + "/" + filename);
+            if (!resource.exists() || !resource.isReadable()) {
+                throw new FileNotReadableException("File exists but is not readable: " + s3Key);
             }
             
-            // Combine filepath and filename, normalize to prevent path traversal
-            Path fullPath = rootLocation.resolve(filepath).resolve(name + "." + suffix).normalize();
-            
-            // Security check - make sure the resolved path is still under root location
-            if (!fullPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
-                throw new RuntimeException("Access to file outside root directory is not allowed");
-            }
-    
-            Resource resource = new UrlResource(fullPath.toUri());
-            
-            if (resource.exists() && resource.isReadable()) {
-                Resource thumbnail = null;
-                if (FileUtil.isImage(filename)) {
-                    thumbnail = FileUtil.generateThumbnail(fullPath.toFile());
-                }
-                return FileDownloadResponse.createSuccess(resource, thumbnail);
-            } else {
-                throw new RuntimeException("Could not read file: " + filepath + "/" + filename);
-            }
-        } catch (MalformedURLException e) {
-            throw new RuntimeException("Could not read file: " + filepath + "/" + filename, e);
+            return resource;
+        } catch (Exception e) {
+            throw new FileDownloadException("Failed to download file: " + s3Key, e);
         }
     }
 
     @Override
-    public FileInfoResponse getFileInfo(String path) {
-        try {
-            FileUtil.sanitizePath(path); // sanitizePath
-            
-            FileUtil.PathInfo pathInfo = FileUtil.parseFilePath(path);
-            log.debug("Parsed path components - directory: {}, name: {}, suffix: {}", 
-                     pathInfo.getDirectory(), pathInfo.getName(), pathInfo.getSuffix());
-
-            // Query the database first
-            FileInfo fileInfo = fileRepository.findByPathAndNameAndSuffix(
-                pathInfo.getDirectory(), pathInfo.getName(), pathInfo.getSuffix());
-
-            Path filePath = rootLocation.resolve(path).normalize();
-            
-            // Security check
-            if (!filePath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
-                throw new RuntimeException("Access to file outside root directory is not allowed");
-            }
-
-            if (!Files.exists(filePath)) {
-                throw new RuntimeException("File not found: " + path);
-            }
-
-            // Create new FileInfo if not found in database
-            if (fileInfo == null) {
-                fileInfo = FileInfo.builder()
-                        .name(pathInfo.getName())
-                        .path(pathInfo.getDirectory())
-                        .size(Files.size(filePath))
-                        .suffix(pathInfo.getSuffix())
-                        .isDirectory(Files.isDirectory(filePath))
-                        .build();
-                fileRepository.save(fileInfo);
-            }
-
-            // Generate thumbnail if it's an image
-            Resource thumbnail = null;
-            if (FileUtil.isImage(path)) {
-                thumbnail = FileUtil.generateThumbnail(filePath.toFile());
-            }
-
-            return FileInfoResponse.createSuccess(fileInfo, thumbnail);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to get file info", e);
-        }
+    public FileInfo getFileInfoById(Long id) {
+        return fileRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("File not found by id: " + id));
     }
 
     @Override
-    public FileListResponse listFiles(String path, int start, int end, String sortBy, boolean ascending, String suffix) {
-        try {
-            // Sanitize the path
-            path = FileUtil.sanitizePath(path);
-            
-            Path directoryPath = rootLocation.resolve(path).normalize();
-            
-            // Security check
-            if (!directoryPath.toAbsolutePath().startsWith(rootLocation.toAbsolutePath())) {
-                throw new RuntimeException("Cannot access directory outside root directory");
+    public List<FileInfo> listFiles(int start, int end, String sortBy, boolean ascending, String name, String suffix, String type) {
+        // Get files with filters from repository
+        List<FileInfo> files = fileRepository.findByFilters(
+                name.isEmpty() ? null : name,
+                suffix.isEmpty() ? null : suffix,
+                type.isEmpty() ? null : type);
+        
+        // Apply sorting
+        files.sort((f1, f2) -> {
+            int result;
+            switch (sortBy.toLowerCase()) {
+                case "name":
+                    result = f1.getName().compareTo(f2.getName());
+                    break;
+                case "size":
+                    result = Long.compare(f1.getSize(), f2.getSize());
+                    break;
+                case "createtime":
+                    result = f1.getCreateTime().compareTo(f2.getCreateTime());
+                    break;
+                case "updatetime":
+                    result = f1.getUpdateTime().compareTo(f2.getUpdateTime());
+                    break;
+                default:
+                    result = f1.getName().compareTo(f2.getName());
             }
-            
-            if (!Files.exists(directoryPath) || !Files.isDirectory(directoryPath)) {
-                throw new RuntimeException("Directory not found: " + path);
-            }
-
-            List<FileInfo> files = fileRepository.findByPath(path);
-            if (files.isEmpty()) {
-                // If not in database, scan directory
-                String localPath = path;
-                files = Files.list(directoryPath)
-                    .map(p -> {
-                        try {
-                            String fileName = p.getFileName().toString();
-                            String fileSuffix = FileUtil.getFileExtension(fileName);
-                            String baseName = FileUtil.getBaseName(fileName);
-                            
-                            return FileInfo.builder()
-                                    .name(baseName)
-                                    .path(localPath)
-                                    .size(Files.isDirectory(p) ? -1L : Files.size(p))
-                                    .suffix(fileSuffix)
-                                    .isDirectory(Files.isDirectory(p))
-                                    .build();
-                        } catch (IOException e) {
-                            log.error("Error reading file attributes: " + p, e);
-                            return null;
-                        }
-                    })
-                    .filter(f -> f != null)
-                    .collect(Collectors.toList());
-                
-                // Save to database
-                fileRepository.saveAll(files);
-            }
-
-            // Apply filtering and sorting
-            files = files.stream()
-                .filter(f -> suffix == null || suffix.isEmpty() || f.getSuffix().equals(suffix))
-                .sorted((f1, f2) -> {
-                    int result = 0;
-                    switch (sortBy) {
-                        case "name":
-                            result = f1.getName().compareTo(f2.getName());
-                            break;
-                        case "size":
-                            result = Long.compare(f1.getSize(), f2.getSize());
-                            break;
-                        case "time":
-                            result = f1.getCreateTime().compareTo(f2.getCreateTime());
-                            break;
-                        default:
-                            result = f1.getName().compareTo(f2.getName());
-                    }
-                    return ascending ? result : -result;
-                })
-                .collect(Collectors.toList());
-
-            // Apply pagination
-            int toIndex = Math.min(end, files.size());
-            files = files.subList(Math.min(start, files.size()), toIndex);
-
-            // Generate thumbnails for images
-            Map<String, Resource> thumbnails = new HashMap<>();
-            for (FileInfo file : files) {
-                if (FileUtil.isImage(file.getName() + "." + file.getSuffix())) {
-                    Path filePath = rootLocation.resolve(file.getPath())
-                            .resolve(file.getName() + "." + file.getSuffix());
-                    Resource thumbnail = FileUtil.generateThumbnail(filePath.toFile());
-                    if (thumbnail != null) {
-                        thumbnails.put(file.getPath() + "/" + file.getName() + "." + file.getSuffix(), thumbnail);
-                    }
-                }
-            }
-
-            return FileListResponse.createSuccess(files, thumbnails);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to list files", e);
+            return ascending ? result : -result;
+        });
+        
+        // Apply pagination
+        if (start >= files.size()) {
+            return Collections.emptyList();
         }
+        int toIndex = Math.min(end, files.size());
+        return files.subList(start, toIndex);
     }
 
     @Override

@@ -1,9 +1,9 @@
 package com.sinuohao.service;
 
 import com.sinuohao.model.FileInfo;
-import com.sinuohao.response.FileDownloadResponse;
-import com.sinuohao.response.FileInfoResponse;
-import com.sinuohao.response.FileListResponse;
+
+import lombok.NonNull;
+import java.util.List;
 import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -12,22 +12,21 @@ import org.springframework.web.multipart.MultipartFile;
  */
 public interface FileService {
     /**
-     * Stores a file in the specified filepath.
+     * Stores a file in s3.
      * 
-     * @param filepath the path where the file will be stored
      * @param file     the file to be stored
-     * @return the stored file path
+     * @return the id of the stored file
      */
-    String storeFile(String filepath, MultipartFile file);
+    Long storeFile(MultipartFile file);
 
     /**
-     * Downloads a file from the specified filepath.
+     * Downloads a file by s3Key, if it's empty, get s3Key by id first.
      * 
-     * @param filepath the path where the file is stored
-     * @param filename the name of the file to be downloaded
-     * @return the downloaded file
+     * @param id the id of the file, not null
+     * @param s3Key the s3Key of the file to be downloaded
+     * @return the downloaded file Resource
      */
-    FileDownloadResponse downloadFile(String filepath, String filename);
+    Resource  downloadFile(@NonNull Long id, String s3Key);
 
     /**
      * Deletes a file with the specified filename.
@@ -37,23 +36,24 @@ public interface FileService {
     void deleteFile(String filename);
 
     /**
-     * Retrieves information about a file at the specified path.
+     * Retrieves information about a file by id
      * 
-     * @param path the path of the file
+     * @param id the id of the file
      * @return the file information
      */
-    FileInfoResponse getFileInfo(String path);
-
+    FileInfo getFileInfoById(Long id);
     /**
      * Lists files in the specified path with pagination and sorting.
      * 
-     * @param path      the path where the files are stored
+     * 
      * @param start     the start index of the pagination
      * @param end       the end index of the pagination
      * @param sortBy    the field to sort by
      * @param ascending whether to sort in ascending order
+     * @param name      the files contain this name
      * @param suffix    the file suffix to filter by
+     * @paran type      the file type to filter by
      * @return the list of files
      */
-    FileListResponse listFiles(String path, int start, int end, String sortBy, boolean ascending, String suffix);
+    List<FileInfo> listFiles(int start, int end, String sortBy, boolean ascending, String name, String suffix, String type);
 }
